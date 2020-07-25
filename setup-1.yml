@@ -1,0 +1,104 @@
+---
+- hosts: all
+  become: yes
+  become_user: root
+  tasks:
+    - name: Install deployment dependencies (apt)
+      apt:
+        name:
+          - python3-pip
+          - xz-utils
+
+    - name: Install Docker Compose
+      get_url:
+        url: https://github.com/docker/compose/releases/download/1.26.0/docker-compose-Linux-x86_64
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+
+    - name: Add Docker Compose to path
+      command: ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
+      args:
+        creates: /usr/bin/docker-compose
+
+    - name: Create Docker network
+      command: "docker network create my_services"
+      # It errors out when the network already exists - ignore
+      ignore_errors: yes
+
+    - name: Create unprivileged user for deploying and running services
+      user:
+        name: deploy
+        shell: /bin/bash
+        groups:
+          # Allow deploy to run Docker and Docker Compose
+          - docker
+
+    - name: Create SSH directory for the deploy user
+      file:
+        path: /home/deploy/.ssh
+        state: directory
+        mode: '0700'
+        owner: deploy
+
+    # For each service, generate an SSH key pair used for cloning git repos
+    # and deploying over SSH
+    - name: Create deploy key for each app
+      command: "ssh-keygen -o -a 100 -t ed25519 -f /home/deploy/.ssh/{{ item }}.id_ed25519 -N ''"
+      become: yes
+      become_user: deploy
+      args:
+        creates: "/home/deploy/.ssh/{{ item }}.id_ed25519"
+      loop: "{{ apps }}"
+
+    # Update SSH authorized keys to allow the deploy user to run the deploy script
+    # over SSH for each service (called deploy-<service>.sh).
+    # See ./update-authorized-keys.sh
+    - name: Allow deploy user to deploy things
+      script: "./update-authorized-keys.sh {{ apps|join(' ') }}"
+
+    - name: Copy general deploy script
+      copy:
+        src: ./deploy.sh
+        dest: /home/deploy
+        mode: '0770'
+        owner: deploy
+
+    - name: Copy app-specific deploy scripts
+      template:
+        src: ./deploy-app.sh.j2
+        dest: /home/deploy/deploy-{{ item }}.sh
+        mode: '0770'
+        owner: deploy
+      loop: "{{ apps }}"
+
+    # Configure deploy's SSH to use the deploy keys generated earlier when cloning/pulling git repos.
+    # When cloning/pulling/etc the <app> repo, we'll use <app>.github.com, so that way, we can
+    # use the app-specific deploy keys transparently using deploy's SSH config. Just have to clone
+    # from <app>.github.com instead of github.com. See ./deploy-ssh-config.j2 template.
+    - name: Set up github permissions
+      template:
+        src: ./deploy-ssh-config.j2
+        dest: /home/deploy/.ssh/config
+        owner: deploy
+
+    - name: Copy the public deploy key to operator's machine
+      fetch:
+        src: "/home/deploy/.ssh/{{ item }}.id_ed25519.pub"
+        dest: "./home/deploy/.ssh/{{ item }}.id_ed25519.pub"
+      loop: "{{ apps }}"
+
+    - name: Copy private SSH keys for Github deploy Action to operator's machine
+      fetch:
+        src: "/home/deploy/.ssh/{{ item }}.id_ed25519"
+        dest: "./home/deploy/.ssh/{{ item }}.id_ed25519"
+      loop: "{{ apps }}"
+
+    - name: Add Github servers to deploy's known hosts so that we skip prompts
+      copy:
+        src: ./known_hosts
+        dest: /home/deploy/.ssh/known_hosts
+        owner: deploy
+
+    # Display instructions before running setup-2
+    - debug:
+        msg: "Before running setup-2, please ensure that (1) public keys are added as deploy keys for each app repo in Github and (2) private keys are added as KEY secret for each app repo in Github
