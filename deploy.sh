@@ -18,5 +18,5 @@ git pull
 
 docker-compose down
 
-# Pass short version of current commit as the image tag
-COMMIT=`git rev-parse --short HEAD` docker-compose -f docker-compose.yml -f docker-compose-prod.yml up -d
+# Pass current commit hash as the image tag
+COMMIT=`git rev-parse HEAD` docker-compose -f docker-compose.yml -f docker-compose-prod.yml up -d

@@ -1,34 +1,17 @@
 ---
 - hosts: all
   become: yes
-  become_user: root
+  become_user: deploy
   tasks:
     - name: Clone app repos
       command: git -C /home/deploy clone git@{{ item }}.github.com:{{ github_account }}/{{ item }}.git
-      become: yes
-      become_user: deploy
       args:
         creates: /home/deploy/{{ item }}/
       loop: "{{ apps }}"
-
+      
     # .envrc will be sourced by the deploy script to set environment variables
     - name: Copy environment variable files
-      become: yes
-      become_user: deploy
       copy:
         src: ./{{ item }}-envrc
         dest: /home/deploy/{{ item }}/.envrc
-      loop: "{{ apps }}"
-
-    - name: "Login to DockerHub"
-      become: yes
-      become_user: deploy
-      command: "docker login -u {{ docker_username }} --password-stdin"
-      args:
-        stdin: "{{ docker_password }}"
-
-    - name: "Deploy apps"
-      become: yes
-      become_user: deploy
-      command: "/home/deploy/deploy-{{ item }}.sh"
       loop: "{{ apps }}"

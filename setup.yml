@@ -3,12 +3,48 @@
   become: yes
   become_user: root
   tasks:
+    # Most of the initial tasks follow the instructions here: https://docs.docker.com/engine/install/ubuntu/
+    # for install Docker Engine on Ubuntu.
+
+    # Packages needs to use HTTPS apt repos
+    - name: Prepare to add Docker apt repo
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg-agent
+          - software-properties-common
+
+    - name: Add Docker repo key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        id: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+        state: present
+
+    # If you're using apt on Ubuntu, change focal for your machine's actual codename
+    # If you're not using apt at all, you'll have to change the next steps to install
+    # Docker using a different method.
+    - name: Add Docker apt repo
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+        state: present
+
     - name: Install deployment dependencies (apt)
       apt:
+        update_cache: yes
+        allow_unauthenticated: yes
         name:
           - python3-pip
           - xz-utils
+          - docker-ce 
+          - docker-ce-cli 
+          - containerd.io
+          # Allows Ansible to become an unprivileged user
+          # https://github.com/georchestra/ansible/issues/55#issuecomment-588313638
+          - acl
 
+    # Next tasks install Docker Compose per https://docs.docker.com/compose/install/
     - name: Install Docker Compose
       get_url:
         url: https://github.com/docker/compose/releases/download/1.26.0/docker-compose-Linux-x86_64
@@ -22,7 +58,7 @@
 
     - name: Create Docker network
       command: "docker network create my_services"
-      # It errors out when the network already exists - ignore
+      # Command errors out when the network already exists - ignore
       ignore_errors: yes
 
     - name: Create unprivileged user for deploying and running services
@@ -39,6 +75,13 @@
         state: directory
         mode: '0700'
         owner: deploy
+
+    # Don't allow the deploy user to set their authorized keys! Otherwise, it can escape from
+    # its one-command jail.
+    - name: Configure SSHD to read authorized keys from /etc/ssh/authorized_keys/<user>
+      copy:
+        src: ./authorized_keys_file.conf
+        dest: /etc/ssh/sshd_config.d/authorized_keys_file.conf
 
     # For each service, generate an SSH key pair used for cloning git repos
     # and deploying over SSH
@@ -84,13 +127,13 @@
     - name: Copy the public deploy key to operator's machine
       fetch:
         src: "/home/deploy/.ssh/{{ item }}.id_ed25519.pub"
-        dest: "./home/deploy/.ssh/{{ item }}.id_ed25519.pub"
+        dest: "keys"
       loop: "{{ apps }}"
 
     - name: Copy private SSH keys for Github deploy Action to operator's machine
       fetch:
         src: "/home/deploy/.ssh/{{ item }}.id_ed25519"
-        dest: "./home/deploy/.ssh/{{ item }}.id_ed25519"
+        dest: "keys"
       loop: "{{ apps }}"
 
     - name: Add Github servers to deploy's known hosts so that we skip prompts
@@ -99,6 +142,9 @@
         dest: /home/deploy/.ssh/known_hosts
         owner: deploy
 
-    # Display instructions before running setup-2
-    - debug:
-        msg: "Before running setup-2, please ensure that (1) public keys are added as deploy keys for each app repo in Github and (2) private keys are added as KEY secret for each app repo in Github
+    - name: "Login to DockerHub"
+      become: yes
+      become_user: deploy
+      command: "docker login -u {{ docker_username }} --password-stdin"
+      args:
+        stdin: "{{ docker_password }}"

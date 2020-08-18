@@ -1,0 +1,13 @@
+---
+- hosts: all
+  become: yes
+  become_user: deploy
+  tasks:
+  - name: "Login to DockerHub"
+    command: "docker login -u {{ docker_username }} --password-stdin"
+    args:
+      stdin: "{{ docker_password }}"
+
+  - name: "Deploy apps"
+    command: "/home/deploy/deploy-{{ item }}.sh"
+    loop: "{{ apps }}"

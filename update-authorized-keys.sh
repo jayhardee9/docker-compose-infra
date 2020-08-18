@@ -1,7 +1,11 @@
 #!/bin/bash
 
 # Truncate or create authorized_keys config for deploy user
+mkdir -p /etc/ssh/authorized_keys
+chmod 755 /etc/ssh/authorized_keys
+
 echo > /etc/ssh/authorized_keys/deploy
+chmod 644 /etc/ssh/authorized_keys/deploy
 
 for app in "$@"
 do

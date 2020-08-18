@@ -1,0 +1,7 @@
+{% for app in apps %}
+Host {{ app }}.github.com
+  HostName github.com
+  User git
+  IdentityFile /home/deploy/.ssh/{{ app }}.id_ed25519
+  IdentitiesOnly yes
+{% endfor %}
