@@ -1,3 +1,10 @@
 #!/bin/bash
-# App-specific wrapper deploy script since we're restricting commands with SSH
-/home/deploy/deploy.sh {{ item }}
+
+cd /home/deploy/{{item}}
+. .envrc
+git pull
+
+docker-compose down
+
+# Pass current commit hash as the image tag
+COMMIT=`git rev-parse HEAD` docker-compose -f docker-compose.yml -f docker-compose-prod.yml up -d
